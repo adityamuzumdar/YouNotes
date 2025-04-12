@@ -3,17 +3,20 @@ require('dotenv').config()
 const express = require('express')
 const cors = require('cors')
 const { YoutubeTranscript } = require('youtube-transcript')
-const OpenAI = require('openai')
 const bodyParser = require('body-parser')
+const axios = require('axios')
 
 const app = express()
-app.use(cors())
+
+// Configure CORS to allow requests from the frontend
+app.use(cors({
+  origin: 'http://localhost:4200', // Angular's default port
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type']
+}))
+
+// Parse JSON bodies
 app.use(bodyParser.json())
-
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY 
-})
 
 // Function to extract video ID from YouTube URL
 function extractVideoId(url) {
@@ -22,28 +25,23 @@ function extractVideoId(url) {
   return (match && match[7].length === 11) ? match[7] : null
 }
 
-// Function to generate notes using OpenAI
+// Function to generate notes using Gemini
 async function generateNotes(transcript) {
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
-        {
-          role: "system",
-          content: "You are a helpful assistant that creates concise, well-structured notes from video transcripts. Format the notes with proper headings, bullet points, and highlight key concepts."
-        },
-        {
-          role: "user",
-          content: `Please create comprehensive notes from this video transcript: ${transcript}`
-        }
-      ],
-      temperature: 0.7,
-      max_tokens: 1000
-    })
+    const response = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      {
+        contents: [{
+          parts: [{
+            text: `You are a helpful assistant that creates concise, well-structured notes from video transcripts. Format the notes with proper headings, bullet points, and highlight key concepts. Please create comprehensive notes from this video transcript: ${transcript}`
+          }]
+        }]
+      }
+    )
 
-    return response.choices[0].message.content
+    return response.data.candidates[0].content.parts[0].text
   } catch (error) {
-    console.error('Error generating notes:', error)
+    console.error('Error generating notes:', error.response?.data || error.message)
     throw new Error('Failed to generate notes')
   }
 }
@@ -74,7 +72,7 @@ app.post('/', async function (req, res) {
       .map(item => item.text)
       .join(' ')
 
-    // Generate notes using OpenAI
+    // Generate notes using Gemini
     const notes = await generateNotes(fullTranscript)
 
     res.json({ notes })
